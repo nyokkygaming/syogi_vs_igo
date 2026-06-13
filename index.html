@@ -520,25 +520,61 @@ function doIgoDrop(r,c){
   updateTurnBar(); render(); setMsg('囲碁陣営の駒を打ちました。');
   scheduleCPU();
 }
+/* 石を(pr,pc)に置いた後、隣接する将棋駒の連を調べ、呼吸点ゼロの連をまとめて取り対象に */
 function checkCaptures(pr,pc){
-  const taken=[];
+  const takenSet=new Map(); // "r,c" -> [r,c] 重複排除
   const neigh=[[pr-1,pc],[pr+1,pc],[pr,pc-1],[pr,pc+1]];
   for(const [r,c] of neigh){
     if(r<0||r>=N||c<0||c>=N) continue;
     const p=board[r][c];
-    if(p&&p.side==='S'&&isSurrounded(r,c)) taken.push([r,c]);
+    if(p&&p.side==='S'){
+      const group=collectGroup(r,c);          // この駒が属する将棋駒の連
+      if(!hasLiberty(group)){                  // 呼吸点ゼロなら連ごと取り
+        for(const [gr,gc] of group) takenSet.set(gr+','+gc,[gr,gc]);
+      }
+    }
   }
-  return taken;
+  return [...takenSet.values()];
 }
+
+/* (r,c)の将棋駒から上下左右に連結した将棋駒の塊を返す */
+function collectGroup(r,c){
+  const group=[]; const seen=new Set(); const stack=[[r,c]];
+  while(stack.length){
+    const [cr,cc]=stack.pop();
+    const key=cr+','+cc;
+    if(seen.has(key)) continue;
+    seen.add(key);
+    const p=board[cr][cc];
+    if(!p||p.side!=='S') continue;
+    group.push([cr,cc]);
+    for(const [dr,dc] of [[-1,0],[1,0],[0,-1],[0,1]]){
+      const nr=cr+dr,nc=cc+dc;
+      if(nr<0||nr>=N||nc<0||nc>=N) continue;
+      const np=board[nr][nc];
+      if(np&&np.side==='S'&&!seen.has(nr+','+nc)) stack.push([nr,nc]);
+    }
+  }
+  return group;
+}
+
+/* 連が呼吸点（隣接する空きマス）を1つでも持つか */
+function hasLiberty(group){
+  for(const [r,c] of group){
+    for(const [dr,dc] of [[-1,0],[1,0],[0,-1],[0,1]]){
+      const nr=r+dr,nc=c+dc;
+      if(nr<0||nr>=N||nc<0||nc>=N) continue; // 壁は呼吸点でない
+      if(board[nr][nc]===null) return true;  // 空点があれば生きている
+    }
+  }
+  return false;
+}
+
+/* 単独駒の囲み判定（CPUの評価などで使用）：連単位で呼吸点ゼロか */
 function isSurrounded(r,c){
-  // 4方向すべてが「囲碁石」または「盤外」なら囲まれている
-  const dirs=[[-1,0],[1,0],[0,-1],[0,1]];
-  return dirs.every(([dr,dc])=>{
-    const nr=r+dr,nc=c+dc;
-    if(nr<0||nr>=N||nc<0||nc>=N) return true; // 壁
-    const t=board[nr][nc];
-    return t&&t.side==='G'; // 石でふさがっている
-  });
+  const p=board[r][c];
+  if(!p||p.side!=='S') return false;
+  return !hasLiberty(collectGroup(r,c));
 }
 
 /* ====== 補助 ====== */
